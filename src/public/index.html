@@ -545,18 +545,12 @@ function makeWeeklyParent(a,year,month){
   const doneCnt=weeks.filter((w,wi)=>!!getC(a.id,wi)).length;
   const allDone=doneCnt===weeks.length;
   const parent=document.createElement('div');parent.className='week-parent';
-  parent.innerHTML=`<div class="week-parent-row"><div class="week-parent-label">Nayax weekly statements <span class="weekly-badge">Fri–Thu · ${doneCnt}/${weeks.length}</span></div><span class="sbadge s-semi">Semi-auto · Gmail #1</span><span class="badge ${allDone?'badge-done':'badge-semi'}">${allDone?'Done':'In progress'}</span></div>`;
-  const stepEl=document.createElement('div');stepEl.className='step-row';
-  stepEl.innerHTML=`<div style="display:flex;align-items:center;gap:3px"><div class="step-num">1</div><span>Gmail detects notifier@nayax.com</span></div><span>→</span><div style="display:flex;align-items:center;gap:3px"><div class="step-num">2</div><span>Link appears on row</span></div><span>→</span><div style="display:flex;align-items:center;gap:3px"><div class="step-num">3</div><span>Open, download, drag to file</span></div>`;
-  parent.appendChild(stepEl);
+  parent.innerHTML=`<div class="week-parent-row"><div class="week-parent-label">Nayax weekly statements <span class="weekly-badge">Fri–Thu · ${doneCnt}/${weeks.length}</span></div><span class="sbadge s-manual">Manual</span><span class="badge ${allDone?'badge-done':'badge-pending'}">${allDone?'Done':'Pending'}</span></div>`;
   const indent=document.createElement('div');indent.className='weekly-indent';
   weeks.forEach((w,wi)=>{
-    const comp=getC(a.id,wi);const isDone=!!comp;const hasLnk=linkDetected(w);const lbl=wLabel(w);
-    const emailR=emailResults.find(r=>r.accountId===a.id);
-    const row=document.createElement('div');row.className='row'+(isDone?' done':hasLnk?' link-ready':'');
-    let status=isDone?`<span style="color:#0f6e56">✓ ${comp.fileName}</span>`:hasLnk?`<span style="color:#534AB7">Link ready — open, download, drag here</span>`:`<span>Waiting for email from notifier@nayax.com</span>`;
-    const openLink=emailR&&emailR.bodyLink?emailR.bodyLink:'https://nayax.com';
-    row.innerHTML=`<div class="row-main"><input type="checkbox" ${isDone?'checked':''} onchange="toggleWeekCheck(${a.id},${wi})" /><div class="row-info"><div class="row-name" style="font-size:12px">${lbl}</div><div class="row-meta">${status}</div></div><div class="row-actions">${hasLnk&&!isDone?`<button class="btn open-stmt" onclick="window.open('${openLink}','_blank')">Open statement</button>`:''}<button class="btn upload" onclick="triggerUpload(${a.id},${wi})">${isDone?'Re-upload':'Fallback'}</button><span class="badge ${isDone?'badge-done':hasLnk?'badge-link':'badge-waiting'}">${isDone?'Done':hasLnk?'Link ready':'Waiting'}</span></div></div><div class="drag-hint">Drop to file ${lbl}</div>`;
+    const comp=getC(a.id,wi);const isDone=!!comp;const lbl=wLabel(w);
+    const row=document.createElement('div');row.className='row'+(isDone?' done':'');
+    row.innerHTML=`<div class="row-main"><input type="checkbox" ${isDone?'checked':''} onchange="toggleWeekCheck(${a.id},${wi})" /><div class="row-info"><div class="row-name" style="font-size:12px">${lbl}</div><div class="row-meta">${isDone?`<span style="color:#0f6e56">✓ ${comp.fileName}</span>`:'<span>Download from email · drag here to file</span>'}</div></div><div class="row-actions"><button class="btn upload" onclick="triggerUpload(${a.id},${wi})">${isDone?'Re-upload':'Upload'}</button><span class="badge ${isDone?'badge-done':'badge-pending'}">${isDone?'Done':'Pending'}</span></div></div><div class="drag-hint">Drop to file ${lbl}</div>`;
     setupDrag(row,a.id,wi,w);indent.appendChild(row);
   });
   parent.appendChild(indent);return parent;
