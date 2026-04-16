@@ -312,6 +312,14 @@ async function checkAuthStatus(){
     const d=await r.json();
     updateGmailUI(1,d.gmail1);
     updateGmailUI(2,d.gmail2);
+    if(d.drive&&d.drive.connected){
+      const btn=document.getElementById('drivebtn');
+      const dot=document.getElementById('drivedot');
+      const lbl=document.getElementById('drivelabel');
+      btn.classList.add('connected');
+      dot.style.background='#1D9E75';
+      lbl.textContent=`Drive: ${d.drive.email}`;
+    }
   }catch(e){}
 }
 function updateGmailUI(slot,status){
@@ -326,6 +334,7 @@ function updateGmailUI(slot,status){
   }
 }
 function connectGmail(slot){window.location.href=`/auth/google/${slot}`;}
+function connectDrive(){window.location.href='/auth/google/drive';}
 
 // ── Email scan ────────────────────────────────────────────────────────────────
 async function runScan(){
