@@ -8,7 +8,7 @@ const fs = require('fs');
 
 const app = express();
 app.use(express.json());
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 app.get('/', (req, res) => {
   const indexPath = path.join(PUBLIC_DIR, 'index.html');
