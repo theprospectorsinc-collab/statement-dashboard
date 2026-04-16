@@ -1,0 +1,927 @@
+{
+  "name": "statement-dashboard",
+  "version": "1.0.0",
+  "description": "Monthly statement collection dashboard",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "googleapis": "^126.0.1",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3"
+  }
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Statement Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; color: #1a1a1a; min-height: 100vh; }
+  .app { max-width: 900px; margin: 0 auto; padding: 2rem 1rem; }
+  .header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 12px; }
+  .header h1 { font-size: 22px; font-weight: 600; }
+  .header p { font-size: 13px; color: #666; margin-top: 2px; }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  select, button, input { font-family: inherit; }
+  select { font-size: 13px; padding: 6px 10px; border-radius: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+
+  /* Gmail connect buttons */
+  .gmail-section { display: flex; gap: 8px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+  .gmail-btn { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .gmail-btn.connected { border-color: #1D9E75; color: #1D9E75; background: #f0faf6; }
+  .gmail-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+  .gmail-btn.connected .dot { background: #1D9E75; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-bottom: 1.25rem; }
+  .stat { background: #fff; border-radius: 8px; padding: 0.75rem 1rem; border: 1px solid #eee; }
+  .stat-label { font-size: 11px; color: #888; margin-bottom: 3px; }
+  .stat-val { font-size: 22px; font-weight: 600; }
+
+  /* Progress */
+  .progress-bar { height: 6px; background: #eee; border-radius: 3px; margin-bottom: 1.5rem; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; background: #1D9E75; transition: width 0.4s; }
+
+  /* Drop zone */
+  .drop-zone { border: 2px dashed #ddd; border-radius: 12px; padding: 1rem; text-align: center; margin-bottom: 1.5rem; transition: all 0.15s; cursor: default; }
+  .drop-zone.drag-over { border-color: #378ADD; background: #eaf3fb; }
+  .drop-zone p { font-size: 13px; color: #888; }
+  .drop-zone span { font-size: 11px; color: #aaa; }
+
+  /* Folder path */
+  .folder-path { font-size: 12px; color: #666; background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 6px 12px; margin-bottom: 1.25rem; }
+
+  /* Categories */
+  .cat { margin-bottom: 1.75rem; }
+  .cat-header { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
+  .cat-count { font-size: 10px; background: #f0f0f0; padding: 1px 7px; border-radius: 20px; font-weight: 500; }
+
+  /* Rows */
+  .row { background: #fff; border: 1px solid #eee; border-radius: 8px; margin-bottom: 4px; overflow: hidden; transition: border-color 0.15s; position: relative; }
+  .row:hover { border-color: #ccc; }
+  .row.done { border-color: #1D9E75; background: #f0faf6; }
+  .row.link-ready { border-color: #534AB7; }
+  .row.drag-over { border: 2px dashed #378ADD !important; background: #eaf3fb; }
+  .row.placeholder { border-style: dashed; opacity: 0.65; }
+  .row-main { display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+  .row-main input[type=checkbox] { width: 15px; height: 15px; accent-color: #1D9E75; flex-shrink: 0; cursor: pointer; }
+  .row-info { flex: 1; min-width: 0; }
+  .row-name { font-size: 13px; font-weight: 500; }
+  .row-sub { font-size: 11px; color: #888; margin-top: 1px; }
+  .row-meta { font-size: 11px; color: #888; margin-top: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .row-actions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; flex-wrap: wrap; }
+
+  /* Buttons */
+  .btn { font-size: 11px; padding: 4px 9px; border-radius: 6px; border: 1px solid #ddd; background: transparent; color: #333; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+  .btn:hover { background: #f5f5f5; }
+  .btn.upload { border-color: #378ADD; color: #185FA5; }
+  .btn.upload:hover { background: #eaf3fb; }
+  .btn.open-stmt { border-color: #534AB7; color: #534AB7; background: #f0effe; font-weight: 500; }
+  .btn.open-stmt:hover { background: #e2defe; }
+
+  /* Badges */
+  .badge { font-size: 10px; padding: 2px 7px; border-radius: 20px; font-weight: 500; white-space: nowrap; }
+  .badge-pending { background: #fff8e6; color: #b07800; }
+  .badge-done { background: #e6f7f1; color: #0f6e56; }
+  .badge-auto { background: #eaf3fb; color: #185FA5; }
+  .badge-semi { background: #f0effe; color: #534AB7; }
+  .badge-yearly { background: #f0f0f0; color: #666; }
+  .badge-placeholder { background: #f0f0f0; color: #aaa; border: 1px dashed #ccc; }
+  .badge-waiting { background: #fff8e6; color: #b07800; }
+  .badge-link { background: #f0effe; color: #534AB7; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.55} }
+
+  /* Source badges */
+  .sbadge { font-size: 10px; padding: 1px 6px; border-radius: 20px; font-weight: 500; }
+  .s-auto { background: #eaf3fb; color: #185FA5; }
+  .s-semi { background: #f0effe; color: #534AB7; }
+  .s-manual { background: #f0f0f0; color: #666; }
+  .s-yearly { background: #fff3e0; color: #854F0B; }
+
+  /* Week parent */
+  .week-parent { background: #f9f9f7; border: 1px solid #eee; border-radius: 8px; margin-bottom: 4px; }
+  .week-parent-row { display: flex; align-items: center; gap: 8px; padding: 9px 12px; flex-wrap: wrap; }
+  .week-parent-label { font-size: 13px; font-weight: 500; flex: 1; }
+  .weekly-badge { background: #f0effe; color: #534AB7; font-size: 10px; padding: 1px 6px; border-radius: 20px; font-weight: 500; }
+  .weekly-indent { margin-left: 12px; padding-left: 12px; border-left: 2px solid #eee; margin-bottom: 8px; }
+  .step-row { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #888; margin: 0 12px 8px; flex-wrap: wrap; }
+  .step-num { width: 15px; height: 15px; border-radius: 50%; background: #f0effe; color: #534AB7; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+  /* Drag hint */
+  .drag-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; color: #185FA5; opacity: 0; pointer-events: none; background: rgba(234,243,251,0.93); transition: opacity 0.15s; border-radius: 8px; }
+  .row.drag-over .drag-hint { opacity: 1; }
+
+  /* Add button */
+  .add-btn { font-size: 12px; padding: 6px; border-radius: 8px; border: 1px dashed #ddd; background: transparent; color: #888; cursor: pointer; width: 100%; margin-top: 2px; }
+  .add-btn:hover { background: #f5f5f5; color: #333; }
+
+  /* Modal */
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; align-items: center; justify-content: center; }
+  .modal-bg.open { display: flex; }
+  .modal { background: #fff; border-radius: 12px; border: 1px solid #ddd; padding: 1.5rem; width: 360px; max-width: 95vw; max-height: 85vh; overflow-y: auto; }
+  .modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 1rem; }
+  .modal label { font-size: 11px; color: #666; display: block; margin-bottom: 3px; margin-top: 10px; }
+  .modal input, .modal select { width: 100%; font-size: 13px; padding: 7px 10px; border-radius: 8px; border: 1px solid #ddd; background: #fff; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 1.25rem; justify-content: flex-end; }
+  .btn-primary { font-size: 13px; padding: 7px 16px; border-radius: 8px; border: none; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; }
+  .btn-cancel { font-size: 13px; padding: 7px 16px; border-radius: 8px; border: 1px solid #ddd; background: transparent; cursor: pointer; }
+  .match-opt { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 5px; cursor: pointer; }
+  .match-opt:hover { border-color: #378ADD; background: #eaf3fb; }
+  .match-opt-name { font-size: 13px; font-weight: 500; }
+  .match-opt-sub { font-size: 11px; color: #888; }
+
+  .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: #fff; font-size: 13px; padding: 10px 18px; border-radius: 8px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 200; white-space: nowrap; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div>
+      <h1>Statement dashboard</h1>
+      <p>All accounts · dual Gmail · Google Drive monthly folders</p>
+    </div>
+    <div class="header-right">
+      <select id="monthSel"></select>
+    </div>
+  </div>
+
+  <div class="gmail-section">
+    <button class="gmail-btn" id="gmail1btn" onclick="connectGmail(1)">
+      <span class="dot" id="gmail1dot"></span>
+      <span id="gmail1label">Connect Gmail #1</span>
+    </button>
+    <button class="gmail-btn" id="gmail2btn" onclick="connectGmail(2)">
+      <span class="dot" id="gmail2dot"></span>
+      <span id="gmail2label">Connect Gmail #2</span>
+    </button>
+    <button class="btn" onclick="runScan()" id="scanBtn">Scan emails</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Total</div><div class="stat-val" id="sTotal">0</div></div>
+    <div class="stat"><div class="stat-label">Full auto</div><div class="stat-val" id="sAuto" style="color:#185FA5">0</div></div>
+    <div class="stat"><div class="stat-label">Semi-auto</div><div class="stat-val" id="sSemi" style="color:#534AB7">0</div></div>
+    <div class="stat"><div class="stat-label">Manual</div><div class="stat-val" id="sManual" style="color:#888">0</div></div>
+    <div class="stat"><div class="stat-label">Collected</div><div class="stat-val" id="sDone" style="color:#1D9E75">0</div></div>
+    <div class="stat"><div class="stat-label">Pending</div><div class="stat-val" id="sPend" style="color:#b07800">0</div></div>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="pFill" style="width:0%"></div></div>
+
+  <div class="folder-path" id="folderPath">📁 Monthly Statements / 2026-04 April</div>
+
+  <div class="drop-zone" id="dropZone">
+    <p>⬆ Drop any statement file here</p>
+    <span>We'll ask which account it belongs to</span>
+  </div>
+
+  <div id="catsContainer"></div>
+</div>
+
+<input type="file" id="fileInput" accept=".pdf,.csv,.xlsx,.png,.jpg" />
+<div class="toast" id="toast"></div>
+
+<!-- Match modal -->
+<div class="modal-bg" id="matchBg">
+  <div class="modal">
+    <h3>Which account is this for?</h3>
+    <p id="matchFile" style="font-size:12px;color:#888;margin-bottom:1rem;"></p>
+    <div id="matchOpts"></div>
+    <button class="btn-cancel" style="width:100%;margin-top:8px;" onclick="closeMatch()">Cancel</button>
+  </div>
+</div>
+
+<!-- Add account modal -->
+<div class="modal-bg" id="addBg">
+  <div class="modal">
+    <h3 id="addTitle">Add account</h3>
+    <label>Name</label><input type="text" id="addName" placeholder="e.g. Idaho Power" />
+    <label>Property / location (optional)</label><input type="text" id="addSub" placeholder="e.g. 4008 W Overland" />
+    <label>Category</label>
+    <select id="addCat">
+      <option>Utilities</option><option>Bank accounts</option><option>Credit cards</option>
+      <option>Insurance</option><option>Mortgage / loans</option><option>Auto loans</option><option>Payment platforms</option>
+    </select>
+    <label>Type</label>
+    <select id="addType">
+      <option value="manual">Manual — I log in and download</option>
+      <option value="auto">Full auto — email attachment</option>
+      <option value="semi">Semi-auto — email link</option>
+      <option value="yearly">Yearly</option>
+    </select>
+    <label>Login URL (optional)</label><input type="text" id="addUrl" placeholder="https://..." />
+    <label>Notes (optional)</label><input type="text" id="addNote" placeholder="e.g. Download from Billing tab" />
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeAdd()">Cancel</button>
+      <button class="btn-primary" onclick="saveAdd()">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const CAT_ORDER=['Bank accounts','Credit cards','Insurance','Mortgage / loans','Auto loans','Payment platforms','Utilities'];
+const now=new Date();
+let selKey=`${now.getFullYear()}-${String(now.getMonth()).padStart(2,'0')}`;
+
+// ── Week calculation (Friday–Thursday) ───────────────────────────────────────
+function getFriThurWeeks(year,month){
+  const weeks=[],first=new Date(year,month,1),last=new Date(year,month+1,0);
+  let fri=new Date(first);const dow=fri.getDay();
+  fri.setDate(fri.getDate()-(dow===5?0:dow<5?dow+2:1));
+  while(fri<=last){
+    const thu=new Date(fri);thu.setDate(thu.getDate()+6);
+    if(thu>=first&&fri<=last)weeks.push({start:new Date(fri),end:new Date(thu)});
+    fri=new Date(fri);fri.setDate(fri.getDate()+7);
+  }
+  return weeks;
+}
+function wLabel(w){
+  if(w.start.getMonth()===w.end.getMonth())return`${MS[w.start.getMonth()]} ${w.start.getDate()}–${w.end.getDate()}`;
+  return`${MS[w.start.getMonth()]} ${w.start.getDate()}–${MS[w.end.getMonth()]} ${w.end.getDate()}`;
+}
+function wFileKey(w){return`${MS[w.start.getMonth()]}${w.start.getDate()}-${w.end.getDate()}_${w.end.getFullYear()}`;}
+function linkDetected(w){return w.end<new Date();}
+
+// ── Default accounts ─────────────────────────────────────────────────────────
+const DEFAULT_ACCOUNTS=[
+  {id:1,name:'US Bank',sub:'Council RV',category:'Bank accounts',type:'manual',url:'https://usbank.com',note:''},
+  {id:2,name:'Mountain West Bank',sub:'Council RV',category:'Bank accounts',type:'manual',url:'https://mountainwestbank.com',note:''},
+  {id:3,name:'Wells Fargo',sub:'Boise Laundry Co',category:'Bank accounts',type:'manual',url:'https://wellsfargo.com',note:''},
+  {id:4,name:'Wells Fargo',sub:'Xpert Sign Tools',category:'Bank accounts',type:'manual',url:'https://wellsfargo.com',note:''},
+  {id:5,name:'Wells Fargo',sub:'The Prospectors',category:'Bank accounts',type:'manual',url:'https://wellsfargo.com',note:''},
+  {id:6,name:'Chase',sub:'Xpert Sign Tools',category:'Credit cards',type:'manual',url:'https://chase.com',note:'Chase Bank'},
+  {id:7,name:'Chase',sub:'Boise Laundry Co',category:'Credit cards',type:'manual',url:'https://chase.com',note:'Chase Bank'},
+  {id:8,name:'Chase',sub:'The Prospectors',category:'Credit cards',type:'manual',url:'https://chase.com',note:'Chase Bank'},
+  {id:9,name:'Allstate',sub:'',category:'Insurance',type:'yearly',url:'https://allstate.com',note:'Confirm renewal month'},
+  {id:10,name:'The Hartford',sub:'',category:'Insurance',type:'yearly',url:'https://thehartford.com',note:'Confirm renewal month'},
+  {id:11,name:'Farm Bureau',sub:'',category:'Insurance',type:'yearly',url:'https://idahofb.org',note:'Confirm renewal month'},
+  {id:12,name:'Rocket Mortgage',sub:'',category:'Mortgage / loans',type:'manual',url:'https://rocketmortgage.com',note:''},
+  {id:13,name:'Mountain West Bank',sub:'Mortgage',category:'Mortgage / loans',type:'manual',url:'https://mountainwestbank.com',note:''},
+  {id:14,name:'P1FCU',sub:'',category:'Mortgage / loans',type:'manual',url:'https://p1fcu.org',note:''},
+  {id:15,name:'Westmark',sub:'4008 W Overland',category:'Mortgage / loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:16,name:'Westmark',sub:'2125 2nd St',category:'Mortgage / loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:17,name:'Westmark',sub:'2051 N Walton Rd',category:'Mortgage / loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:18,name:'Westmark',sub:'40 N 7th St',category:'Mortgage / loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:19,name:'Westmark',sub:'700 1st Ave',category:'Mortgage / loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:20,name:'Westmark',sub:'501 N Jeffrey',category:'Mortgage / loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:21,name:'Westmark',sub:'917 N 12th St',category:'Mortgage / loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:22,name:'Westmark CU',sub:'Truck',category:'Auto loans',type:'manual',url:'https://westmarkcu.com',note:''},
+  {id:23,name:'ICCU',sub:'4Runner',category:'Auto loans',type:'manual',url:'https://iccu.com',note:''},
+  {id:24,name:'PayRange',sub:'',category:'Payment platforms',type:'manual',url:'https://payrange.com',note:'Log in → Reports → Monthly export'},
+  {id:25,name:'Nayax weekly',sub:'Fri–Thu statements',category:'Payment platforms',type:'semi',url:'https://nayax.com',note:'',weekly:true,emailSource:{gmail:1,sender:'notifier@nayax.com'}},
+  {id:26,name:'Nayax monthly invoice',sub:'',category:'Payment platforms',type:'auto',url:'',note:'',invoice:true,emailSource:{gmail:1,sender:'system@sent-via.netsuite.com'}},
+  {id:27,name:'SeedLive',sub:'',category:'Payment platforms',type:'manual',url:'https://seedlive.com',note:'Export monthly earnings report'},
+  {id:28,name:'ATM Balance',sub:'Fees collected & paid',category:'Payment platforms',type:'auto',url:'',note:'',emailSource:{gmail:2,sender:'atm@provider.com'}},
+  {id:29,name:'Utility provider',sub:'Add property address',category:'Utilities',type:'manual',url:'',note:'',placeholder:true},
+  {id:30,name:'Utility provider',sub:'Add property address',category:'Utilities',type:'manual',url:'',note:'',placeholder:true},
+  {id:31,name:'Utility provider',sub:'Add property address',category:'Utilities',type:'manual',url:'',note:'',placeholder:true},
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let accounts=JSON.parse(localStorage.getItem('sd_accts')||'null')||DEFAULT_ACCOUNTS;
+let completions=JSON.parse(localStorage.getItem('sd_comps')||'{}');
+let nextId=accounts.reduce((m,a)=>Math.max(m,a.id),0)+1;
+let pendingUploadId=null,pendingWeekIdx=null,pendingFile=null,addingCat='';
+let emailResults=[];
+
+function save(){try{localStorage.setItem('sd_accts',JSON.stringify(accounts));localStorage.setItem('sd_comps',JSON.stringify(completions));}catch(e){}}
+function pk(){const[y,m]=selKey.split('-');return{year:parseInt(y),month:parseInt(m)};}
+function folderName(){const{year,month}=pk();return`${year}-${String(month+1).padStart(2,'0')} ${MONTHS[month]}`;}
+function ck(id,wk){return wk!=null?`${selKey}_${id}_w${wk}`:`${selKey}_${id}`;}
+function getC(id,wk){return completions[ck(id,wk)]||null;}
+function setC(id,wk,data){completions[ck(id,wk)]=data;save();}
+function sn(n,s){return(n+(s?'_'+s:'')).replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_');}
+
+// ── Month selector ────────────────────────────────────────────────────────────
+function buildMonthSel(){
+  const sel=document.getElementById('monthSel');
+  for(let y=now.getFullYear();y>=now.getFullYear()-1;y--){
+    const maxM=y===now.getFullYear()?now.getMonth():11;
+    for(let m=maxM;m>=0;m--){
+      const key=`${y}-${String(m).padStart(2,'0')}`;
+      const opt=document.createElement('option');
+      opt.value=key;opt.textContent=`${MONTHS[m]} ${y}`;
+      if(key===selKey)opt.selected=true;
+      sel.appendChild(opt);
+    }
+  }
+  sel.onchange=()=>{selKey=sel.value;document.getElementById('folderPath').textContent=`📁 Monthly Statements / ${folderName()}`;render();};
+}
+
+// ── Gmail auth status ─────────────────────────────────────────────────────────
+async function checkAuthStatus(){
+  try{
+    const r=await fetch('/auth/status');
+    const d=await r.json();
+    updateGmailUI(1,d.gmail1);
+    updateGmailUI(2,d.gmail2);
+  }catch(e){}
+}
+function updateGmailUI(slot,status){
+  const btn=document.getElementById(`gmail${slot}btn`);
+  const dot=document.getElementById(`gmail${slot}dot`);
+  const lbl=document.getElementById(`gmail${slot}label`);
+  if(status.connected){
+    btn.classList.add('connected');
+    dot.style.background='#1D9E75';
+    lbl.textContent=`Gmail #${slot}: ${status.email}`;
+    btn.onclick=null;
+  }
+}
+function connectGmail(slot){window.location.href=`/auth/google/${slot}`;}
+
+// ── Email scan ────────────────────────────────────────────────────────────────
+async function runScan(){
+  const btn=document.getElementById('scanBtn');
+  btn.textContent='Scanning...';btn.disabled=true;
+  try{
+    const r=await fetch('/api/scan');
+    const d=await r.json();
+    emailResults=d.results||[];
+    showToast(`Scan complete: ${emailResults.length} emails found`);
+    render();
+  }catch(e){showToast('Scan failed — check Gmail connections');}
+  btn.textContent='Scan emails';btn.disabled=false;
+}
+
+function getEmailResultForAccount(accountId){
+  return emailResults.find(r=>r.accountId===accountId)||null;
+}
+
+// ── File to account ───────────────────────────────────────────────────────────
+async function fileAccount(id,file,wk,weekObj){
+  const a=accounts.find(x=>x.id===id);
+  const{year,month}=pk();
+  const ext=file?file.name.split('.').pop():'pdf';
+  let fn;
+  if(a.invoice)fn=`Nayax_Invoice_${MS[month]}${year}.pdf`;
+  else if(weekObj)fn=`Nayax_${wFileKey(weekObj)}.pdf`;
+  else fn=`${sn(a.name,a.sub)}_${MS[month]}${year}.${ext}`;
+
+  if(file){
+    // Upload to Google Drive via server
+    try{
+      showToast('Uploading to Google Drive...');
+      const res=await fetch(`/api/upload?filename=${encodeURIComponent(fn)}&year=${year}&month=${month}&mimeType=${encodeURIComponent(file.type||'application/pdf')}`,{
+        method:'POST',headers:{'Content-Type':file.type||'application/pdf'},body:file
+      });
+      const data=await res.json();
+      if(data.success){
+        setC(id,wk,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString(),driveUrl:data.url});
+        showToast(`✓ Filed: ${fn} → ${folderName()}`);
+      } else {
+        // Fall back to local tracking if Drive not connected
+        setC(id,wk,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString()});
+        showToast(`Tracked: ${fn} (Drive not connected)`);
+      }
+    }catch(e){
+      setC(id,wk,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString()});
+      showToast(`Tracked locally: ${fn}`);
+    }
+  } else {
+    setC(id,wk,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString(),auto:true});
+    showToast(`Auto-filed: ${fn}`);
+  }
+  render();
+}
+
+// ── Drag and drop ─────────────────────────────────────────────────────────────
+function setupDrag(row,id,wk,weekObj){
+  row.addEventListener('dragover',e=>{e.preventDefault();row.classList.add('drag-over');});
+  row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+  row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const f=e.dataTransfer.files[0];if(f)fileAccount(id,f,wk,weekObj);});
+}
+function setupDropZone(){
+  const z=document.getElementById('dropZone');
+  z.addEventListener('dragover',e=>{e.preventDefault();z.classList.add('drag-over');});
+  z.addEventListener('dragleave',()=>z.classList.remove('drag-over'));
+  z.addEventListener('drop',e=>{e.preventDefault();z.classList.remove('drag-over');const f=e.dataTransfer.files[0];if(f){pendingFile=f;openMatch(f);}});
+  document.addEventListener('dragover',e=>e.preventDefault());
+}
+
+function openMatch(file){
+  const{year,month}=pk();
+  document.getElementById('matchFile').textContent=`File: ${file.name}`;
+  const opts=document.getElementById('matchOpts');opts.innerHTML='';
+  accounts.filter(a=>!a.placeholder).forEach(a=>{
+    if(a.weekly){
+      getFriThurWeeks(year,month).forEach((w,wi)=>{
+        if(getC(a.id,wi))return;
+        const d=document.createElement('div');d.className='match-opt';
+        d.innerHTML=`<div><div class="match-opt-name">${a.name}</div><div class="match-opt-sub">${wLabel(w)}</div></div>`;
+        d.onclick=()=>{fileAccount(a.id,file,wi,w);closeMatch();};opts.appendChild(d);
+      });
+    } else {
+      if(getC(a.id))return;
+      const d=document.createElement('div');d.className='match-opt';
+      d.innerHTML=`<div><div class="match-opt-name">${a.name}${a.sub?' · '+a.sub:''}</div><div class="match-opt-sub">${a.category}</div></div>`;
+      d.onclick=()=>{fileAccount(a.id,file,null,null);closeMatch();};opts.appendChild(d);
+    }
+  });
+  document.getElementById('matchBg').classList.add('open');
+}
+function closeMatch(){document.getElementById('matchBg').classList.remove('open');pendingFile=null;}
+
+document.getElementById('fileInput').onchange=function(){
+  const f=this.files[0];if(!f)return;
+  if(pendingUploadId!==null){
+    const{year,month}=pk();
+    let wo=null;
+    if(pendingWeekIdx!==null){const wks=getFriThurWeeks(year,month);wo=wks[pendingWeekIdx];}
+    fileAccount(pendingUploadId,f,pendingWeekIdx,wo);
+    pendingUploadId=null;pendingWeekIdx=null;
+  }
+  this.value='';
+};
+function triggerUpload(id,wk){pendingUploadId=id;pendingWeekIdx=wk!=null?wk:null;document.getElementById('fileInput').click();}
+
+// ── Add account modal ─────────────────────────────────────────────────────────
+function openAdd(cat){
+  addingCat=cat;
+  document.getElementById('addTitle').textContent=cat==='Utilities'?'Add utility':'Add account';
+  document.getElementById('addCat').value=cat;
+  ['addName','addSub','addUrl','addNote'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('addType').value='manual';
+  document.getElementById('addBg').classList.add('open');
+}
+function closeAdd(){document.getElementById('addBg').classList.remove('open');}
+function saveAdd(){
+  const name=document.getElementById('addName').value.trim();if(!name)return;
+  const newA={id:nextId++,name,sub:document.getElementById('addSub').value.trim(),
+    category:document.getElementById('addCat').value,type:document.getElementById('addType').value,
+    url:document.getElementById('addUrl').value.trim(),note:document.getElementById('addNote').value.trim(),placeholder:false};
+  const phIdx=accounts.findIndex(a=>a.placeholder&&a.category===newA.category);
+  if(phIdx>-1)accounts.splice(phIdx,1);
+  accounts.push(newA);
+  save();closeAdd();render();showToast(`Added: ${name}`);
+}
+
+// ── Stats & rendering ─────────────────────────────────────────────────────────
+function countTotals(){
+  const{year,month}=pk();
+  let total=0,fullAuto=0,semi=0,manual=0,done=0;
+  accounts.forEach(a=>{
+    if(a.placeholder)return;
+    if(a.weekly){getFriThurWeeks(year,month).forEach((w,wi)=>{total++;semi++;if(getC(a.id,wi))done++;});}
+    else{total++;if(a.type==='auto'){fullAuto++;if(getC(a.id))done++;}
+      else if(a.type==='semi'){semi++;if(getC(a.id))done++;}
+      else{manual++;if(getC(a.id))done++;}}
+  });
+  return{total,fullAuto,semi,manual,done,pending:total-done};
+}
+
+function groupByCat(){
+  const cats={};CAT_ORDER.forEach(c=>cats[c]=[]);
+  accounts.forEach(a=>{if(!cats[a.category])cats[a.category]=[];cats[a.category].push(a);});
+  return cats;
+}
+
+function makeStdRow(a){
+  if(a.placeholder){
+    const row=document.createElement('div');row.className='row placeholder';
+    row.innerHTML=`<div class="row-main"><input type="checkbox" disabled /><div class="row-info"><div class="row-name" style="color:#aaa">${a.name}</div><div class="row-sub">${a.sub}</div></div><div class="row-actions"><button class="btn" onclick="openAdd('${a.category}')">+ Configure</button><span class="badge badge-placeholder">Placeholder</span></div></div>`;
+    return row;
+  }
+  const comp=getC(a.id);const isDone=!!comp;
+  const isAuto=a.type==='auto';const isYearly=a.type==='yearly';
+  const emailResult=isAuto?getEmailResultForAccount(a.id):null;
+  let srcBadge='';
+  if(isAuto)srcBadge=`<span class="sbadge s-auto">Auto · Gmail #${a.emailSource?a.emailSource.gmail:'?'}</span>`;
+  else if(a.type==='semi')srcBadge=`<span class="sbadge s-semi">Semi-auto</span>`;
+  else if(isYearly)srcBadge=`<span class="sbadge s-yearly">Yearly</span>`;
+  else srcBadge=`<span class="sbadge s-manual">Manual</span>`;
+
+  let fileInfo='';
+  if(comp){fileInfo=`<span style="color:#0f6e56">✓ ${comp.fileName}${comp.auto?' · auto-filed':''}${comp.driveUrl?` <a href="${comp.driveUrl}" target="_blank" style="color:#185FA5">View</a>`:''}</span>`;}
+  else if(emailResult&&emailResult.hasAttachment&&isAuto){fileInfo=`<span style="color:#534AB7">📎 Attachment ready — click Auto-file</span>`;}
+
+  const row=document.createElement('div');row.className='row'+(isDone?' done':'');
+  row.innerHTML=`
+    <div class="row-main">
+      <input type="checkbox" ${isDone?'checked':''} onchange="toggleCheck(${a.id})" />
+      <div class="row-info">
+        <div class="row-name">${a.name}${a.invoice?' <span style="font-size:10px;background:#eaf3fb;color:#185FA5;padding:1px 5px;border-radius:20px;">invoice</span>':''}</div>
+        ${a.sub?`<div class="row-sub">${a.sub}</div>`:''}
+        <div class="row-meta">${srcBadge}${a.note?`<span>${a.note}</span>`:''}${fileInfo}</div>
+      </div>
+      <div class="row-actions">
+        ${a.url?`<button class="btn" onclick="window.open('${a.url}','_blank')">Open ↗</button>`:''}
+        ${emailResult&&emailResult.hasAttachment&&isAuto&&!isDone?`<button class="btn open-stmt" onclick="autoFile(${a.id})">Auto-file</button>`:''}
+        ${!isAuto?`<button class="btn upload" onclick="triggerUpload(${a.id},null)">${isDone?'Re-upload':'Upload'}</button>`:''}
+        <span class="badge ${isDone?'badge-done':isAuto?'badge-auto':isYearly?'badge-yearly':'badge-pending'}">${isDone?'Done':isAuto?'Auto':isYearly?'Yearly':'Pending'}</span>
+      </div>
+    </div>
+    ${!isAuto?`<div class="drag-hint">Drop to file here</div>`:''}`;
+  if(!isAuto)setupDrag(row,a.id,null,null);
+  return row;
+}
+
+async function autoFile(accountId){
+  const{year,month}=pk();
+  const result=getEmailResultForAccount(accountId);
+  if(!result||!result.hasAttachment)return;
+  const a=accounts.find(x=>x.id===accountId);
+  const fn=a.invoice?`Nayax_Invoice_${MS[month]}${year}.pdf`:`${sn(a.name,a.sub)}_${MS[month]}${year}.pdf`;
+  try{
+    showToast('Auto-filing from Gmail...');
+    const att=result.attachments[0];
+    const res=await fetch('/api/auto-file',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({messageId:result.messageId,attachmentId:att.attachmentId,filename:fn,accountId,year,month,gmailSlot:result.gmailSlot||1})});
+    const data=await res.json();
+    if(data.success){setC(accountId,null,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString(),auto:true,driveUrl:data.url});showToast(`✓ Auto-filed: ${fn}`);}
+    else showToast('Auto-file failed: '+data.error);
+  }catch(e){showToast('Auto-file error: '+e.message);}
+  render();
+}
+
+function makeWeeklyParent(a,year,month){
+  const weeks=getFriThurWeeks(year,month);
+  const doneCnt=weeks.filter((w,wi)=>!!getC(a.id,wi)).length;
+  const allDone=doneCnt===weeks.length;
+  const parent=document.createElement('div');parent.className='week-parent';
+  parent.innerHTML=`<div class="week-parent-row"><div class="week-parent-label">Nayax weekly statements <span class="weekly-badge">Fri–Thu · ${doneCnt}/${weeks.length}</span></div><span class="sbadge s-semi">Semi-auto · Gmail #1</span><span class="badge ${allDone?'badge-done':'badge-semi'}">${allDone?'Done':'In progress'}</span></div>`;
+  const stepEl=document.createElement('div');stepEl.className='step-row';
+  stepEl.innerHTML=`<div style="display:flex;align-items:center;gap:3px"><div class="step-num">1</div><span>Gmail detects notifier@nayax.com</span></div><span>→</span><div style="display:flex;align-items:center;gap:3px"><div class="step-num">2</div><span>Link appears on row</span></div><span>→</span><div style="display:flex;align-items:center;gap:3px"><div class="step-num">3</div><span>Open, download, drag to file</span></div>`;
+  parent.appendChild(stepEl);
+  const indent=document.createElement('div');indent.className='weekly-indent';
+  weeks.forEach((w,wi)=>{
+    const comp=getC(a.id,wi);const isDone=!!comp;const hasLnk=linkDetected(w);const lbl=wLabel(w);
+    const emailR=emailResults.find(r=>r.accountId===a.id);
+    const row=document.createElement('div');row.className='row'+(isDone?' done':hasLnk?' link-ready':'');
+    let status=isDone?`<span style="color:#0f6e56">✓ ${comp.fileName}</span>`:hasLnk?`<span style="color:#534AB7">Link ready — open, download, drag here</span>`:`<span>Waiting for email from notifier@nayax.com</span>`;
+    const openLink=emailR&&emailR.bodyLink?emailR.bodyLink:'#';
+    row.innerHTML=`<div class="row-main"><input type="checkbox" ${isDone?'checked':''} onchange="toggleWeekCheck(${a.id},${wi})" /><div class="row-info"><div class="row-name" style="font-size:12px">${lbl}</div><div class="row-meta">${status}</div></div><div class="row-actions">${hasLnk&&!isDone?`<button class="btn open-stmt" onclick="window.open('${openLink}','_blank')">Open statement</button>`:''}<button class="btn upload" onclick="triggerUpload(${a.id},${wi})">${isDone?'Re-upload':'Fallback'}</button><span class="badge ${isDone?'badge-done':hasLnk?'badge-link':'badge-waiting'}">${isDone?'Done':hasLnk?'Link ready':'Waiting'}</span></div></div><div class="drag-hint">Drop to file ${lbl}</div>`;
+    setupDrag(row,a.id,wi,w);indent.appendChild(row);
+  });
+  parent.appendChild(indent);return parent;
+}
+
+function render(){
+  const{year,month}=pk();
+  const{total,fullAuto,semi,manual,done,pending}=countTotals();
+  const pct=total?Math.round(done/total*100):0;
+  document.getElementById('sTotal').textContent=total;
+  document.getElementById('sAuto').textContent=fullAuto;
+  document.getElementById('sSemi').textContent=semi;
+  document.getElementById('sManual').textContent=manual;
+  document.getElementById('sDone').textContent=done;
+  document.getElementById('sPend').textContent=pending;
+  document.getElementById('pFill').style.width=pct+'%';
+
+  const container=document.getElementById('catsContainer');container.innerHTML='';
+  const cats=groupByCat();
+  CAT_ORDER.forEach(cat=>{
+    const accts=cats[cat];if(!accts||!accts.length)return;
+    const sec=document.createElement('div');sec.className='cat';
+    const real=accts.filter(a=>!a.placeholder);
+    const tCat=real.reduce((n,a)=>n+(a.weekly?getFriThurWeeks(year,month).length:1),0);
+    const dCat=real.reduce((n,a)=>{if(a.weekly)return n+getFriThurWeeks(year,month).filter((w,wi)=>!!getC(a.id,wi)).length;return n+(getC(a.id)?1:0);},0);
+    sec.innerHTML=`<div class="cat-header"><span>${cat}</span>${tCat>0?`<span class="cat-count">${dCat}/${tCat}</span>`:''}</div>`;
+    accts.forEach(a=>{if(a.weekly)sec.appendChild(makeWeeklyParent(a,year,month));else sec.appendChild(makeStdRow(a));});
+    const addBtn=document.createElement('button');addBtn.className='add-btn';
+    addBtn.textContent=`+ Add ${cat==='Utilities'?'utility':'account'} to ${cat}`;
+    addBtn.onclick=()=>openAdd(cat);sec.appendChild(addBtn);
+    container.appendChild(sec);
+  });
+}
+
+function toggleCheck(id){if(getC(id)){completions[ck(id,null)]=null;save();render();}else triggerUpload(id,null);}
+function toggleWeekCheck(id,wi){if(getC(id,wi)){completions[ck(id,wi)]=null;save();render();}else triggerUpload(id,wi);}
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3500);}
+
+// ── Check URL params for OAuth redirect ──────────────────────────────────────
+const params=new URLSearchParams(window.location.search);
+if(params.get('connected')){
+  showToast(`${params.get('connected')} connected: ${params.get('email')}`);
+  window.history.replaceState({},document.title,window.location.pathname);
+}
+
+buildMonthSel();
+setupDropZone();
+checkAuthStatus();
+render();
+</script>
+</body>
+</html>
+
+require('dotenv').config();
+const express = require('express');
+const session = require('express-session');
+const { google } = require('googleapis');
+const cron = require('node-cron');
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'change-this-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+}));
+
+// ─── Google OAuth Clients ───────────────────────────────────────────────────
+function makeOAuthClient() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+}
+
+const SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/userinfo.email'
+];
+
+// ─── Data persistence (file-based, swap for DB on Railway) ─────────────────
+const DATA_FILE = path.join(__dirname, '../data.json');
+function loadData() {
+  if (fs.existsSync(DATA_FILE)) return JSON.parse(fs.readFileSync(DATA_FILE));
+  return { tokens: {}, completions: {}, accounts: null };
+}
+function saveData(data) {
+  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+// ─── Auth Routes ────────────────────────────────────────────────────────────
+// Connect Gmail account (1 or 2)
+app.get('/auth/google/:slot', (req, res) => {
+  const slot = req.params.slot; // '1' or '2'
+  const oauth2Client = makeOAuthClient();
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: SCOPES,
+    state: slot
+  });
+  res.redirect(url);
+});
+
+app.get('/auth/callback', async (req, res) => {
+  const { code, state: slot } = req.query;
+  const oauth2Client = makeOAuthClient();
+  const { tokens } = await oauth2Client.getToken(code);
+  oauth2Client.setCredentials(tokens);
+
+  // Get email address to confirm which account
+  const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+  const { data } = await oauth2.userinfo.get();
+
+  const appData = loadData();
+  appData.tokens[`gmail${slot}`] = tokens;
+  appData.tokens[`gmail${slot}_email`] = data.email;
+  saveData(appData);
+
+  res.redirect(`/?connected=gmail${slot}&email=${encodeURIComponent(data.email)}`);
+});
+
+app.get('/auth/status', (req, res) => {
+  const data = loadData();
+  res.json({
+    gmail1: data.tokens.gmail1 ? { connected: true, email: data.tokens.gmail1_email } : { connected: false },
+    gmail2: data.tokens.gmail2 ? { connected: true, email: data.tokens.gmail2_email } : { connected: false }
+  });
+});
+
+// ─── Drive: Ensure monthly folder exists ────────────────────────────────────
+async function getOrCreateFolder(drive, name, parentId = null) {
+  const q = parentId
+    ? `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+    : `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+
+  const { data } = await drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
+  if (data.files.length > 0) return data.files[0].id;
+
+  const { data: folder } = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      ...(parentId ? { parents: [parentId] } : {})
+    },
+    fields: 'id'
+  });
+  return folder.id;
+}
+
+async function getMonthlyFolderId(drive, year, month) {
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const folderName = `${year}-${String(month+1).padStart(2,'0')} ${MONTHS[month]}`;
+  const rootId = await getOrCreateFolder(drive, 'Monthly Statements');
+  return getOrCreateFolder(drive, folderName, rootId);
+}
+
+// ─── Drive: Upload file ──────────────────────────────────────────────────────
+app.post('/api/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
+  try {
+    const { filename, year, month, mimeType } = req.query;
+    const data = loadData();
+    if (!data.tokens.gmail1) return res.status(401).json({ error: 'Google Drive not connected' });
+
+    const oauth2Client = makeOAuthClient();
+    oauth2Client.setCredentials(data.tokens.gmail1);
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+    const folderId = await getMonthlyFolderId(drive, parseInt(year), parseInt(month));
+
+    const { data: file } = await drive.files.create({
+      requestBody: { name: filename, parents: [folderId] },
+      media: { mimeType: mimeType || 'application/pdf', body: require('stream').Readable.from(req.body) },
+      fields: 'id,name,webViewLink'
+    });
+
+    res.json({ success: true, fileId: file.id, fileName: file.name, url: file.webViewLink });
+  } catch (err) {
+    console.error('Upload error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Gmail: Scan for statement emails ───────────────────────────────────────
+async function scanGmail(slot, rules) {
+  const data = loadData();
+  const tokens = data.tokens[`gmail${slot}`];
+  if (!tokens) return [];
+
+  const oauth2Client = makeOAuthClient();
+  oauth2Client.setCredentials(tokens);
+  const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+  const results = [];
+
+  for (const rule of rules) {
+    try {
+      const query = `from:${rule.sender} newer_than:35d`;
+      const { data: list } = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: 10 });
+      if (!list.messages) continue;
+
+      for (const msg of list.messages) {
+        const { data: full } = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
+        const headers = full.payload.headers;
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value || '';
+
+        // Check for attachments
+        const parts = full.payload.parts || [];
+        const attachments = parts.filter(p => p.filename && p.body?.attachmentId);
+
+        // Check for links in body
+        let bodyLink = null;
+        const bodyPart = parts.find(p => p.mimeType === 'text/html') || parts.find(p => p.mimeType === 'text/plain');
+        if (bodyPart?.body?.data && attachments.length === 0) {
+          const bodyText = Buffer.from(bodyPart.body.data, 'base64').toString();
+          const linkMatch = bodyText.match(/https?:\/\/[^\s"'<>]+/);
+          if (linkMatch) bodyLink = linkMatch[0];
+        }
+
+        results.push({
+          accountId: rule.accountId,
+          messageId: msg.id,
+          subject,
+          date,
+          hasAttachment: attachments.length > 0,
+          attachments: attachments.map(a => ({ name: a.filename, attachmentId: a.body.attachmentId, size: a.body.size })),
+          bodyLink,
+          sender: rule.sender
+        });
+      }
+    } catch (err) {
+      console.error(`Gmail scan error for ${rule.sender}:`, err.message);
+    }
+  }
+  return results;
+}
+
+// Rules for which emails to watch
+const EMAIL_RULES = [
+  // Full auto (attachments) — Gmail #1
+  { slot: 1, accountId: 26, sender: 'system@sent-via.netsuite.com', keyword: 'invoice' },
+  { slot: 2, accountId: 28, sender: 'atm@provider.com', keyword: 'balance' },
+  // Semi-auto (links) — Gmail #1
+  { slot: 1, accountId: 25, sender: 'notifier@nayax.com', keyword: 'statement' },
+  // Add your bank/card/insurance senders here:
+  // { slot: 1, accountId: 1, sender: 'statements@usbank.com', keyword: 'statement' },
+];
+
+app.get('/api/scan', async (req, res) => {
+  try {
+    const slot1Rules = EMAIL_RULES.filter(r => r.slot === 1);
+    const slot2Rules = EMAIL_RULES.filter(r => r.slot === 2);
+    const [results1, results2] = await Promise.all([
+      scanGmail(1, slot1Rules),
+      scanGmail(2, slot2Rules)
+    ]);
+    res.json({ results: [...results1, ...results2] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download attachment from Gmail and upload to Drive
+app.post('/api/auto-file', async (req, res) => {
+  try {
+    const { messageId, attachmentId, filename, accountId, year, month, gmailSlot } = req.body;
+    const data = loadData();
+    const tokens = data.tokens[`gmail${gmailSlot}`];
+    if (!tokens) return res.status(401).json({ error: 'Gmail not connected' });
+
+    const oauth2Client = makeOAuthClient();
+    oauth2Client.setCredentials(tokens);
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+    // Download attachment
+    const { data: attachment } = await gmail.users.messages.attachments.get({
+      userId: 'me', messageId, id: attachmentId
+    });
+    const fileBuffer = Buffer.from(attachment.data, 'base64');
+
+    // Upload to Drive
+    const folderId = await getMonthlyFolderId(drive, parseInt(year), parseInt(month));
+    const { data: file } = await drive.files.create({
+      requestBody: { name: filename, parents: [folderId] },
+      media: { mimeType: 'application/pdf', body: require('stream').Readable.from(fileBuffer) },
+      fields: 'id,name,webViewLink'
+    });
+
+    // Mark as complete
+    const key = `${year}-${String(month).padStart(2,'0')}_${accountId}`;
+    data.completions[key] = { fileName: filename, folder: `Monthly Statements`, uploadedAt: new Date().toISOString(), auto: true };
+    saveData(data);
+
+    res.json({ success: true, fileId: file.id, fileName: file.name, url: file.webViewLink });
+  } catch (err) {
+    console.error('Auto-file error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Completions API ─────────────────────────────────────────────────────────
+app.get('/api/completions', (req, res) => {
+  const data = loadData();
+  res.json(data.completions || {});
+});
+
+app.post('/api/completions', (req, res) => {
+  const data = loadData();
+  data.completions = req.body;
+  saveData(data);
+  res.json({ success: true });
+});
+
+// ─── Accounts API ────────────────────────────────────────────────────────────
+app.get('/api/accounts', (req, res) => {
+  const data = loadData();
+  res.json(data.accounts || null);
+});
+
+app.post('/api/accounts', (req, res) => {
+  const data = loadData();
+  data.accounts = req.body;
+  saveData(data);
+  res.json({ success: true });
+});
+
+// ─── Auto-scan cron: runs daily at 8am ──────────────────────────────────────
+cron.schedule('0 8 * * *', async () => {
+  console.log('Running daily Gmail scan...');
+  try {
+    const slot1Rules = EMAIL_RULES.filter(r => r.slot === 1);
+    const slot2Rules = EMAIL_RULES.filter(r => r.slot === 2);
+    const [r1, r2] = await Promise.all([scanGmail(1, slot1Rules), scanGmail(2, slot2Rules)]);
+    const allResults = [...r1, ...r2];
+    console.log(`Scan complete: ${allResults.length} emails found`);
+    // Auto-file attachments
+    for (const result of allResults) {
+      if (result.hasAttachment) {
+        const now = new Date();
+        for (const att of result.attachments) {
+          console.log(`Auto-filing: ${att.name} for account ${result.accountId}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Cron scan error:', err);
+  }
+});
+
+// ─── Start ───────────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Statement dashboard running on port ${PORT}`));
