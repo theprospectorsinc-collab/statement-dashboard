@@ -8,8 +8,16 @@ const fs = require('fs');
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+app.use(express.static(PUBLIC_DIR));
+app.get('/', (req, res) => {
+  const indexPath = path.join(PUBLIC_DIR, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.send('Public dir: ' + PUBLIC_DIR + ' | Files: ' + fs.readdirSync(path.join(__dirname, '..')).join(', '));
+  }
+});
 app.use(session({
   secret: process.env.SESSION_SECRET || 'change-this-secret',
   resave: false,
