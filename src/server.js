@@ -9,6 +9,7 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'change-this-secret',
   resave: false,
