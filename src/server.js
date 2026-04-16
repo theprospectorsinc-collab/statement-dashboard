@@ -8,16 +8,7 @@ const fs = require('fs');
 
 const app = express();
 app.use(express.json());
-const PUBLIC_DIR = path.join(__dirname, 'public');
-app.use(express.static(PUBLIC_DIR));
-app.get('/', (req, res) => {
-  const indexPath = path.join(PUBLIC_DIR, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.send('Public dir: ' + PUBLIC_DIR + ' | Files: ' + fs.readdirSync(path.join(__dirname, '..')).join(', '));
-  }
-});
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'change-this-secret',
   resave: false,
@@ -33,13 +24,17 @@ function makeOAuthClient() {
   );
 }
 
-const SCOPES = [
+const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/userinfo.email'
+];
+
+const DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/userinfo.email'
 ];
 
-const DATA_FILE = path.join(__dirname, '../data.json');
+const DATA_FILE = path.join(__dirname, '..', 'data.json');
 function loadData() {
   if (fs.existsSync(DATA_FILE)) return JSON.parse(fs.readFileSync(DATA_FILE));
   return { tokens: {}, completions: {}, accounts: null };
@@ -52,10 +47,11 @@ function saveData(data) {
 app.get('/auth/google/:slot', (req, res) => {
   const slot = req.params.slot;
   const oauth2Client = makeOAuthClient();
+  const scopes = slot === 'drive' ? DRIVE_SCOPES : GMAIL_SCOPES;
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: SCOPES,
+    scope: scopes,
     state: slot
   });
   res.redirect(url);
@@ -63,23 +59,34 @@ app.get('/auth/google/:slot', (req, res) => {
 
 app.get('/auth/callback', async (req, res) => {
   const { code, state: slot } = req.query;
-  const oauth2Client = makeOAuthClient();
-  const { tokens } = await oauth2Client.getToken(code);
-  oauth2Client.setCredentials(tokens);
-  const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-  const { data } = await oauth2.userinfo.get();
-  const appData = loadData();
-  appData.tokens[`gmail${slot}`] = tokens;
-  appData.tokens[`gmail${slot}_email`] = data.email;
-  saveData(appData);
-  res.redirect(`/?connected=gmail${slot}&email=${encodeURIComponent(data.email)}`);
+  try {
+    const oauth2Client = makeOAuthClient();
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data } = await oauth2.userinfo.get();
+    const appData = loadData();
+    if (slot === 'drive') {
+      appData.tokens.drive = tokens;
+      appData.tokens.drive_email = data.email;
+    } else {
+      appData.tokens[`gmail${slot}`] = tokens;
+      appData.tokens[`gmail${slot}_email`] = data.email;
+    }
+    saveData(appData);
+    res.redirect(`/?connected=${slot}&email=${encodeURIComponent(data.email)}`);
+  } catch (err) {
+    console.error('Auth callback error:', err.message);
+    res.redirect('/?error=auth_failed');
+  }
 });
 
 app.get('/auth/status', (req, res) => {
   const data = loadData();
   res.json({
     gmail1: data.tokens.gmail1 ? { connected: true, email: data.tokens.gmail1_email } : { connected: false },
-    gmail2: data.tokens.gmail2 ? { connected: true, email: data.tokens.gmail2_email } : { connected: false }
+    gmail2: data.tokens.gmail2 ? { connected: true, email: data.tokens.gmail2_email } : { connected: false },
+    drive: data.tokens.drive ? { connected: true, email: data.tokens.drive_email } : { connected: false }
   });
 });
 
@@ -103,14 +110,20 @@ async function getMonthlyFolderId(drive, year, month) {
   return getOrCreateFolder(drive, folderName, rootId);
 }
 
+function getDriveClient() {
+  const data = loadData();
+  const tokens = data.tokens.drive || data.tokens.gmail1;
+  if (!tokens) return null;
+  const oauth2Client = makeOAuthClient();
+  oauth2Client.setCredentials(tokens);
+  return google.drive({ version: 'v3', auth: oauth2Client });
+}
+
 app.post('/api/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
   try {
     const { filename, year, month, mimeType } = req.query;
-    const data = loadData();
-    if (!data.tokens.gmail1) return res.status(401).json({ error: 'Google Drive not connected' });
-    const oauth2Client = makeOAuthClient();
-    oauth2Client.setCredentials(data.tokens.gmail1);
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const drive = getDriveClient();
+    if (!drive) return res.status(401).json({ error: 'No Drive account connected' });
     const folderId = await getMonthlyFolderId(drive, parseInt(year), parseInt(month));
     const { data: file } = await drive.files.create({
       requestBody: { name: filename, parents: [folderId] },
@@ -119,6 +132,7 @@ app.post('/api/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req,
     });
     res.json({ success: true, fileId: file.id, fileName: file.name, url: file.webViewLink });
   } catch (err) {
+    console.error('Upload error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -159,7 +173,7 @@ async function scanGmail(slot, rules) {
           date: headers.find(h => h.name === 'Date')?.value || '',
           hasAttachment: attachments.length > 0,
           attachments: attachments.map(a => ({ name: a.filename, attachmentId: a.body.attachmentId })),
-          bodyLink, sender: rule.sender
+          bodyLink, sender: rule.sender, gmailSlot: slot
         });
       }
     } catch (err) { console.error(`Scan error for ${rule.sender}:`, err.message); }
@@ -169,7 +183,10 @@ async function scanGmail(slot, rules) {
 
 app.get('/api/scan', async (req, res) => {
   try {
-    const [r1, r2] = await Promise.all([scanGmail(1, EMAIL_RULES.filter(r=>r.slot===1)), scanGmail(2, EMAIL_RULES.filter(r=>r.slot===2))]);
+    const [r1, r2] = await Promise.all([
+      scanGmail(1, EMAIL_RULES.filter(r => r.slot === 1)),
+      scanGmail(2, EMAIL_RULES.filter(r => r.slot === 2))
+    ]);
     res.json({ results: [...r1, ...r2] });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -178,12 +195,15 @@ app.post('/api/auto-file', async (req, res) => {
   try {
     const { messageId, attachmentId, filename, accountId, year, month, gmailSlot } = req.body;
     const data = loadData();
-    const oauth2Client = makeOAuthClient();
-    oauth2Client.setCredentials(data.tokens[`gmail${gmailSlot}`]);
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const gmailTokens = data.tokens[`gmail${gmailSlot}`];
+    if (!gmailTokens) return res.status(401).json({ error: 'Gmail not connected' });
+    const gmailClient = makeOAuthClient();
+    gmailClient.setCredentials(gmailTokens);
+    const gmail = google.gmail({ version: 'v1', auth: gmailClient });
     const { data: attachment } = await gmail.users.messages.attachments.get({ userId: 'me', messageId, id: attachmentId });
     const fileBuffer = Buffer.from(attachment.data, 'base64');
+    const drive = getDriveClient();
+    if (!drive) return res.status(401).json({ error: 'No Drive account connected' });
     const folderId = await getMonthlyFolderId(drive, parseInt(year), parseInt(month));
     const { data: file } = await drive.files.create({
       requestBody: { name: filename, parents: [folderId] },
@@ -194,18 +214,25 @@ app.post('/api/auto-file', async (req, res) => {
     data.completions[key] = { fileName: filename, uploadedAt: new Date().toISOString(), auto: true };
     saveData(data);
     res.json({ success: true, fileId: file.id, fileName: file.name, url: file.webViewLink });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('Auto-file error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/completions', (req, res) => { res.json(loadData().completions || {}); });
-app.post('/api/completions', (req, res) => { const d=loadData(); d.completions=req.body; saveData(d); res.json({success:true}); });
+app.post('/api/completions', (req, res) => { const d = loadData(); d.completions = req.body; saveData(d); res.json({ success: true }); });
 app.get('/api/accounts', (req, res) => { res.json(loadData().accounts || null); });
-app.post('/api/accounts', (req, res) => { const d=loadData(); d.accounts=req.body; saveData(d); res.json({success:true}); });
+app.post('/api/accounts', (req, res) => { const d = loadData(); d.accounts = req.body; saveData(d); res.json({ success: true }); });
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 cron.schedule('0 8 * * *', async () => {
   console.log('Running daily Gmail scan...');
-  const [r1,r2] = await Promise.all([scanGmail(1,EMAIL_RULES.filter(r=>r.slot===1)),scanGmail(2,EMAIL_RULES.filter(r=>r.slot===2))]);
-  console.log(`Scan complete: ${[...r1,...r2].length} emails found`);
+  const [r1, r2] = await Promise.all([
+    scanGmail(1, EMAIL_RULES.filter(r => r.slot === 1)),
+    scanGmail(2, EMAIL_RULES.filter(r => r.slot === 2))
+  ]);
+  console.log(`Scan complete: ${[...r1, ...r2].length} emails found`);
 });
 
 const PORT = process.env.PORT || 3000;
