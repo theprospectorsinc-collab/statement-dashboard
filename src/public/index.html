@@ -514,7 +514,7 @@ function makeStdRow(a){
       </div>
     </div>
     ${!isAuto?`<div class="drag-hint">Drop to file here</div>`:''}`;
-  if(!isAuto)setupDrag(row,a.id,null,null);
+  setupDrag(row,a.id,null,null);
   return row;
 }
 
