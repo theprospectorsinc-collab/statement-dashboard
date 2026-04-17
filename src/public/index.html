@@ -367,7 +367,7 @@ async function fileAccount(id,file,wk,weekObj){
   if(file){
     // Upload to Google Drive via server
     try{
-      showToast('Uploading to Google Drive...');
+      showToast('Uploading to Dropbox...');
       const res=await fetch(`/api/upload?filename=${encodeURIComponent(fn)}&year=${year}&month=${month}&mimeType=${encodeURIComponent(file.type||'application/pdf')}`,{
         method:'POST',headers:{'Content-Type':file.type||'application/pdf'},body:file
       });
