@@ -42,7 +42,8 @@ function loadData() {
 function saveData(data) {
   fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-} app.get('/auth/google/:slot', (req, res) => {
+}
+app.get('/auth/google/:slot', (req, res) => {
   const slot = req.params.slot;
   const oauth2Client = makeOAuthClient();
   const scopes = slot === 'drive' ? DRIVE_SCOPES : GMAIL_SCOPES;
@@ -117,8 +118,6 @@ app.post('/api/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req,
     res.status(500).json({ error: err.message });
   }
 });
-});
-
 const EMAIL_RULES = [
   { slot: 1, accountId: 26, sender: 'system@sent-via.netsuite.com', keyword: 'invoice' },
   { slot: 2, accountId: 28, sender: 'atm@provider.com', keyword: 'balance' },
@@ -179,18 +178,12 @@ app.post('/api/auto-file', async (req, res) => {
     const gmail = google.gmail({ version: 'v1', auth: gmailClient });
     const { data: attachment } = await gmail.users.messages.attachments.get({ userId: 'me', messageId, id: attachmentId });
     const fileBuffer = Buffer.from(attachment.data, 'base64');
-    const drive = getDriveClient();
-    if (!drive) return res.status(401).json({ error: 'No Drive account connected' });
-    const folderId = await getMonthlyFolderId(drive, parseInt(year), parseInt(month));
-    const { data: file } = await drive.files.create({
-      requestBody: { name: filename, parents: [folderId] },
-      media: { mimeType: 'application/pdf', body: require('stream').Readable.from(fileBuffer) },
-      fields: 'id,name,webViewLink'
-    });
+    if (!process.env.DROPBOX_TOKEN) return res.status(401).json({ error: 'Dropbox not configured' });
+    const result = await uploadToDropbox(fileBuffer, filename, parseInt(year), parseInt(month));
     const key = `${year}-${String(month).padStart(2,'0')}_${accountId}`;
     data.completions[key] = { fileName: filename, uploadedAt: new Date().toISOString(), auto: true };
     saveData(data);
-    res.json({ success: true, fileId: file.id, fileName: file.name, url: file.webViewLink });
+    res.json({ success: true, fileName: result.name, path: result.path });
   } catch (err) {
     console.error('Auto-file error:', err.message);
     res.status(500).json({ error: err.message });
