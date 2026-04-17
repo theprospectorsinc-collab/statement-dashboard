@@ -88,51 +88,35 @@ app.get('/auth/status', (req, res) => {
   });
 });
 
-async function getOrCreateFolder(drive, name, parentId = null) {
-  const q = parentId
-    ? `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
-    : `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  const { data } = await drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
-  if (data.files.length > 0) return data.files[0].id;
-  const { data: folder } = await drive.files.create({
-    requestBody: { name, mimeType: 'application/vnd.google-apps.folder', ...(parentId ? { parents: [parentId] } : {}) },
-    fields: 'id'
-  });
-  return folder.id;
-}
-
-async function getMonthlyFolderId(drive, year, month) {
+async function uploadToDropbox(fileBuffer, filename, year, month) {
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const folderName = `${year}-${String(month+1).padStart(2,'0')} ${MONTHS[month]}`;
-  const rootId = await getOrCreateFolder(drive, 'Monthly Statements');
-  return getOrCreateFolder(drive, folderName, rootId);
-}
-
-function getDriveClient() {
-  const data = loadData();
-  const tokens = data.tokens.drive || data.tokens.gmail1;
-  if (!tokens) return null;
-  const oauth2Client = makeOAuthClient();
-  oauth2Client.setCredentials(tokens);
-  return google.drive({ version: 'v3', auth: oauth2Client });
+  const dropboxPath = `/Monthly Statements/${folderName}/${filename}`;
+  const response = await fetch('https://content.dropboxapi.com/2/files/upload', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.DROPBOX_TOKEN}`,
+      'Dropbox-API-Arg': JSON.stringify({ path: dropboxPath, mode: 'overwrite', autorename: false }),
+      'Content-Type': 'application/octet-stream'
+    },
+    body: fileBuffer
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error_summary || 'Dropbox upload failed');
+  return { path: dropboxPath, name: filename };
 }
 
 app.post('/api/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
   try {
-    const { filename, year, month, mimeType } = req.query;
-    const drive = getDriveClient();
-    if (!drive) return res.status(401).json({ error: 'No Drive account connected' });
-    const folderId = await getMonthlyFolderId(drive, parseInt(year), parseInt(month));
-    const { data: file } = await drive.files.create({
-      requestBody: { name: filename, parents: [folderId] },
-      media: { mimeType: mimeType || 'application/pdf', body: require('stream').Readable.from(req.body) },
-      fields: 'id,name,webViewLink'
-    });
-    res.json({ success: true, fileId: file.id, fileName: file.name, url: file.webViewLink });
+    const { filename, year, month } = req.query;
+    if (!process.env.DROPBOX_TOKEN) return res.status(401).json({ error: 'Dropbox not configured' });
+    const result = await uploadToDropbox(req.body, filename, parseInt(year), parseInt(month));
+    res.json({ success: true, fileName: result.name, path: result.path });
   } catch (err) {
     console.error('Upload error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
 });const EMAIL_RULES = [
   { slot: 1, accountId: 26, sender: 'system@sent-via.netsuite.com', keyword: 'invoice' },
   { slot: 2, accountId: 28, sender: 'atm@provider.com', keyword: 'balance' },
