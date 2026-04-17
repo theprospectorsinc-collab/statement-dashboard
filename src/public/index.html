@@ -508,7 +508,7 @@ function makeStdRow(a){
       <div class="row-actions">
         ${a.url?`<button class="btn" onclick="window.open('${a.url}','_blank')">Open ↗</button>`:''}
         ${emailResult&&emailResult.hasAttachment&&isAuto&&!isDone?`<button class="btn open-stmt" onclick="autoFile(${a.id})">Auto-file</button>`:''}
-        ${!isAuto?`<button class="btn upload" onclick="triggerUpload(${a.id},null)">${isDone?'Re-upload':'Upload'}</button>`:''}
+        <button class="btn upload" onclick="triggerUpload(${a.id},null)">${isDone?'Re-upload':'Upload'}</button>
         <span class="badge ${isDone?'badge-done':isAuto?'badge-auto':isYearly?'badge-yearly':'badge-pending'}">${isDone?'Done':isAuto?'Auto':isYearly?'Yearly':'Pending'}</span>
       </div>
     </div>
