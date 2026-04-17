@@ -376,9 +376,8 @@ async function fileAccount(id,file,wk,weekObj){
         setC(id,wk,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString(),driveUrl:data.url});
         showToast(`✓ Filed: ${fn} → ${folderName()}`);
       } else {
-        // Fall back to local tracking if Drive not connected
         setC(id,wk,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString()});
-        showToast(`Tracked: ${fn} (Drive not connected)`);
+        showToast(`Tracked: ${fn} (Dropbox upload failed — check token)`);
       }
     }catch(e){
       setC(id,wk,{fileName:fn,folder:folderName(),uploadedAt:new Date().toLocaleString()});
