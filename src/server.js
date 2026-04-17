@@ -117,7 +117,8 @@ app.post('/api/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req,
     res.status(500).json({ error: err.message });
   }
 });
-});const EMAIL_RULES = [
+});
+const EMAIL_RULES = [
   { slot: 1, accountId: 26, sender: 'system@sent-via.netsuite.com', keyword: 'invoice' },
   { slot: 2, accountId: 28, sender: 'atm@provider.com', keyword: 'balance' },
   { slot: 1, accountId: 25, sender: 'notifier@nayax.com', keyword: 'statement' },
@@ -193,7 +194,8 @@ app.post('/api/auto-file', async (req, res) => {
     console.error('Auto-file error:', err.message);
     res.status(500).json({ error: err.message });
   }
-});app.get('/api/completions', (req, res) => { res.json(loadData().completions || {}); });
+});
+app.get('/api/completions', (req, res) => { res.json(loadData().completions || {}); });
 app.post('/api/completions', (req, res) => { const d = loadData(); d.completions = req.body; saveData(d); res.json({ success: true }); });
 app.get('/api/accounts', (req, res) => { res.json(loadData().accounts || null); });
 app.post('/api/accounts', (req, res) => { const d = loadData(); d.accounts = req.body; saveData(d); res.json({ success: true }); });
