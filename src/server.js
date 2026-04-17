@@ -118,6 +118,7 @@ app.post('/api/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req,
   }
 });
 });
+
 const EMAIL_RULES = [
   { slot: 1, accountId: 26, sender: 'system@sent-via.netsuite.com', keyword: 'invoice' },
   { slot: 2, accountId: 28, sender: 'atm@provider.com', keyword: 'balance' },
